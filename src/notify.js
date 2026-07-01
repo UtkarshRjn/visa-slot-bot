@@ -70,6 +70,33 @@ export async function sendWhatsApp(config, { title, body }) {
   return { ok, status: res.status, body: respText };
 }
 
+// --- PagerDuty (Events API v2) --------------------------------------------
+// One "trigger" event -> PagerDuty runs the loud, persistent, escalating alarm
+// until you acknowledge. dedup_key collapses an ongoing opening into a single
+// incident so it doesn't spam.
+export async function sendPagerDuty(config, { title, body }) {
+  const res = await fetch("https://events.pagerduty.com/v2/enqueue", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      routing_key: config.pdRoutingKey,
+      event_action: "trigger",
+      dedup_key: "visa-slot-open",
+      payload: {
+        summary: `${title} — ${body}`.slice(0, 1024),
+        severity: "critical",
+        source: "visa-slot-bot",
+        component: "checkvisaslots",
+      },
+      links: [{ href: "https://www.usvisascheduling.com/en-US/", text: "Book on usvisascheduling" }],
+    }),
+  });
+  const text = await res.text();
+  const ok = res.ok;
+  if (!ok) console.error(`[notify:pagerduty] failed (${res.status}): ${text.slice(0, 300)}`);
+  return { ok, status: res.status, body: text };
+}
+
 // Dispatch to whichever provider(s) are configured. Succeeds if any provider
 // delivers, so "both" gives you redundancy.
 export async function sendAlert(config, alert) {
@@ -77,6 +104,9 @@ export async function sendAlert(config, alert) {
   const results = [];
   if (provider === "ntfy" || provider === "both") {
     results.push(["ntfy", await sendNtfy(config, alert).catch((e) => ({ ok: false, body: e.message }))]);
+  }
+  if (provider === "pagerduty" || provider === "both") {
+    results.push(["pagerduty", await sendPagerDuty(config, alert).catch((e) => ({ ok: false, body: e.message }))]);
   }
   if (provider === "whatsapp" || provider === "both") {
     results.push(["whatsapp", await sendWhatsApp(config, alert).catch((e) => ({ ok: false, body: e.message }))]);

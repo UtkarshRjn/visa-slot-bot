@@ -20,6 +20,8 @@ function cfg(env) {
     ntfyServer: (env.NTFY_SERVER || "https://ntfy.sh").replace(/\/$/, ""),
     ntfyTopic: env.NTFY_TOPIC,
     ntfyRepeat: Math.max(1, Number(env.NTFY_REPEAT ?? 3)),
+    notifyProvider: (env.NOTIFY_PROVIDER || "ntfy").toLowerCase(), // ntfy | pagerduty | both
+    pdRoutingKey: env.PD_ROUTING_KEY || "",
     maxAgeMinutes: Number(env.MAX_AGE_MINUTES ?? 20),
     cooldownMinutes: Number(env.NOTIFY_COOLDOWN_MINUTES ?? 15),
     locations: (env.LOCATIONS || "")
@@ -138,6 +140,38 @@ async function sendNtfyRepeated(c, title, body) {
   return anyOk;
 }
 
+// PagerDuty Events API v2: one "trigger" event -> PagerDuty handles the loud,
+// persistent, escalating alarm until you acknowledge. dedup_key collapses an
+// ongoing opening into a single incident (no spam).
+async function sendPagerDuty(c, title, body) {
+  const res = await fetch("https://events.pagerduty.com/v2/enqueue", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      routing_key: c.pdRoutingKey,
+      event_action: "trigger",
+      dedup_key: "visa-slot-open",
+      payload: {
+        summary: `${title} — ${body}`.slice(0, 1024),
+        severity: "critical",
+        source: "visa-slot-bot",
+        component: "checkvisaslots",
+      },
+      links: [{ href: VISA_URL, text: "Book on usvisascheduling" }],
+    }),
+  });
+  return res.ok;
+}
+
+// Dispatch to whichever provider(s) are configured.
+async function dispatch(c, title, body) {
+  const p = c.notifyProvider;
+  let ok = false;
+  if (p === "ntfy" || p === "both") ok = (await sendNtfyRepeated(c, title, body)) || ok;
+  if (p === "pagerduty" || p === "both") ok = (await sendPagerDuty(c, title, body)) || ok;
+  return ok;
+}
+
 async function run(env) {
   const c = cfg(env);
   const resp = await fetchSlots(c);
@@ -173,7 +207,7 @@ async function run(env) {
   }
 
   const body = buildBody(notifiable.map((n) => n.a), appointmentType);
-  const sent = await sendNtfyRepeated(c, "US VISA SLOT AVAILABLE", body);
+  const sent = await dispatch(c, "US VISA SLOT AVAILABLE", body);
   if (sent) {
     for (const n of notifiable) state[n.a.location] = { sig: n.sig, ts: now };
     await env.STATE.put(STATE_KEY, JSON.stringify(state));
@@ -215,7 +249,7 @@ export default {
     }
     if (url.pathname === "/test") {
       const c = cfg(env);
-      const ok = await sendNtfyRepeated(c, "Visa Slot Bot test", "✅ Cloudflare Worker is live and can reach your phone.");
+      const ok = await dispatch(c, "Visa Slot Bot test", "✅ Cloudflare Worker is live and can reach your phone.");
       return Response.json({ ok });
     }
     return new Response("visa-slot-bot worker ok. Try /run or /test", { status: 200 });

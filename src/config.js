@@ -88,6 +88,12 @@ export const config = {
   ntfyToken: process.env.NTFY_TOKEN?.trim() || "", // only for private servers
   ntfyRepeat: Math.max(1, num("NTFY_REPEAT", 3)), // send each alert N times
 
+  // PagerDuty (Events API v2)
+  pdRoutingKey:
+    notifyProvider === "pagerduty" || notifyProvider === "both"
+      ? required("PD_ROUTING_KEY")
+      : process.env.PD_ROUTING_KEY?.trim() || "",
+
   // CallMeBot WhatsApp (optional)
   whatsappPhone:
     notifyProvider === "whatsapp" || notifyProvider === "both"

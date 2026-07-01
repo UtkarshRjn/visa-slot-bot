@@ -19,7 +19,7 @@ NTFY_SERVER = "https://ntfy.sh"
 # NTFY_TOPIC is set as a Cloudflare secret (kept out of this public repo):
 #   npx wrangler secret put NTFY_TOPIC
 # Send each alert this many times (a few seconds apart) so it keeps buzzing.
-NTFY_REPEAT = "3"
+NTFY_REPEAT = "2"
 MAX_AGE_MINUTES = "20"
 NOTIFY_COOLDOWN_MINUTES = "15"
 LOCATIONS = ""
