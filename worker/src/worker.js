@@ -150,7 +150,9 @@ async function sendPagerDuty(c, title, body) {
     body: JSON.stringify({
       routing_key: c.pdRoutingKey,
       event_action: "trigger",
-      dedup_key: "visa-slot-open",
+      // Unique per alert so PagerDuty won't suppress later openings. The bot's
+      // own cooldown/change-detection already prevents spam.
+      dedup_key: `visa-slot-${Date.now()}`,
       payload: {
         summary: `${title} — ${body}`.slice(0, 1024),
         severity: "critical",

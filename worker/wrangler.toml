@@ -13,6 +13,8 @@ crons = ["* * * * *"]
 # Non-secret config (CVS_API_KEY is set separately as a secret).
 [vars]
 EXT_VERSION = "4.7.3"
+# Notifier: ntfy | pagerduty | both. PD_ROUTING_KEY is set as a secret.
+NOTIFY_PROVIDER = "pagerduty"
 # 30 => two passes per minute (at 0s and 30s). 60 => one pass per minute.
 POLL_INTERVAL_SECONDS = "30"
 NTFY_SERVER = "https://ntfy.sh"
