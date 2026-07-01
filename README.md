@@ -109,6 +109,7 @@ want ~30s.
 | `NOTIFY_PROVIDER` | `ntfy` | `ntfy` \| `whatsapp` \| `both`. |
 | `NTFY_TOPIC` | — | Required for ntfy. Your subscribed topic name. |
 | `NTFY_SERVER` | `https://ntfy.sh` | Override for a self-hosted ntfy. |
+| `NTFY_REPEAT` | `3` | Send each alert this many times (a few sec apart). |
 | `CALLMEBOT_PHONE` | — | Required for whatsapp. e.g. `+14085551234`. |
 | `CALLMEBOT_APIKEY` | — | Required for whatsapp. From CallMeBot activation. |
 | `POLL_INTERVAL_SECONDS` | `30` | Poll frequency (Node loop; Worker passes/min). |

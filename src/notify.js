@@ -20,11 +20,13 @@ export function buildAlert(available, appointmentType) {
 }
 
 // --- ntfy ------------------------------------------------------------------
-export async function sendNtfy(config, { title, body }) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function sendNtfyOnce(config, { title, body }) {
   const url = `${config.ntfyServer.replace(/\/$/, "")}/${config.ntfyTopic}`;
   const headers = {
     Title: title,
-    Priority: "urgent", // breaks through silent / Do Not Disturb
+    Priority: "urgent", // max priority — plays sound / time-sensitive
     Tags: "rotating_light",
     Click: "https://www.usvisascheduling.com/en-US/",
     "Content-Type": "text/plain; charset=utf-8",
@@ -36,6 +38,20 @@ export async function sendNtfy(config, { title, body }) {
   const ok = res.ok;
   if (!ok) console.error(`[notify:ntfy] failed (${res.status}): ${text.slice(0, 300)}`);
   return { ok, status: res.status, body: text };
+}
+
+// Send the same alert config.ntfyRepeat times, a few seconds apart, so it keeps
+// buzzing until you look.
+export async function sendNtfy(config, alert) {
+  const times = config.ntfyRepeat || 1;
+  let anyOk = false;
+  for (let i = 0; i < times; i++) {
+    if (i > 0) await sleep(4000);
+    const title = times > 1 ? `${alert.title} (${i + 1}/${times})` : alert.title;
+    const r = await sendNtfyOnce(config, { title, body: alert.body });
+    anyOk = anyOk || r.ok;
+  }
+  return { ok: anyOk };
 }
 
 // --- WhatsApp (CallMeBot) --------------------------------------------------

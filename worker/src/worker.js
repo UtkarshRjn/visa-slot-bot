@@ -19,6 +19,7 @@ function cfg(env) {
     extVersion: env.EXT_VERSION || "4.7.3",
     ntfyServer: (env.NTFY_SERVER || "https://ntfy.sh").replace(/\/$/, ""),
     ntfyTopic: env.NTFY_TOPIC,
+    ntfyRepeat: Math.max(1, Number(env.NTFY_REPEAT ?? 3)),
     maxAgeMinutes: Number(env.MAX_AGE_MINUTES ?? 20),
     cooldownMinutes: Number(env.NOTIFY_COOLDOWN_MINUTES ?? 15),
     locations: (env.LOCATIONS || "")
@@ -109,6 +110,8 @@ function buildBody(available, appointmentType) {
   return lines.join("\n");
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 async function sendNtfy(c, title, body) {
   const res = await fetch(`${c.ntfyServer}/${c.ntfyTopic}`, {
     method: "POST",
@@ -122,6 +125,17 @@ async function sendNtfy(c, title, body) {
     body,
   });
   return res.ok;
+}
+
+// Send the same alert multiple times (a few seconds apart) so it keeps buzzing.
+async function sendNtfyRepeated(c, title, body) {
+  let anyOk = false;
+  for (let i = 0; i < c.ntfyRepeat; i++) {
+    if (i > 0) await sleep(4000);
+    const t = c.ntfyRepeat > 1 ? `${title} (${i + 1}/${c.ntfyRepeat})` : title;
+    anyOk = (await sendNtfy(c, t, body)) || anyOk;
+  }
+  return anyOk;
 }
 
 async function run(env) {
@@ -159,7 +173,7 @@ async function run(env) {
   }
 
   const body = buildBody(notifiable.map((n) => n.a), appointmentType);
-  const sent = await sendNtfy(c, "US VISA SLOT AVAILABLE", body);
+  const sent = await sendNtfyRepeated(c, "US VISA SLOT AVAILABLE", body);
   if (sent) {
     for (const n of notifiable) state[n.a.location] = { sig: n.sig, ts: now };
     await env.STATE.put(STATE_KEY, JSON.stringify(state));
@@ -169,8 +183,6 @@ async function run(env) {
   }
   return { ok: true, available: available.length, notified: sent ? notifiable.length : 0 };
 }
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Cloudflare cron only fires once/minute, so to approximate faster polling we
 // run several passes within one invocation, spaced POLL_INTERVAL_SECONDS apart.
@@ -203,7 +215,7 @@ export default {
     }
     if (url.pathname === "/test") {
       const c = cfg(env);
-      const ok = await sendNtfy(c, "Visa Slot Bot test", "✅ Cloudflare Worker is live and can reach your phone.");
+      const ok = await sendNtfyRepeated(c, "Visa Slot Bot test", "✅ Cloudflare Worker is live and can reach your phone.");
       return Response.json({ ok });
     }
     return new Response("visa-slot-bot worker ok. Try /run or /test", { status: 200 });
