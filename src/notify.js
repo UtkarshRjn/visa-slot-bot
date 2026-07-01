@@ -85,7 +85,7 @@ export async function sendPagerDuty(config, { title, body }) {
       // own cooldown/change-detection already prevents spam.
       dedup_key: `visa-slot-${Date.now()}`,
       payload: {
-        summary: `${title} — ${body}`.slice(0, 1024),
+        summary: `${title} — ${body} | Book: https://www.usvisascheduling.com/en-US/`.slice(0, 1024),
         severity: "critical",
         source: "visa-slot-bot",
         component: "checkvisaslots",

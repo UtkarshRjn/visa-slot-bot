@@ -167,7 +167,7 @@ async function sendPagerDuty(c, title, body, env) {
     event_action: "trigger",
     dedup_key: dedup,
     payload: {
-      summary: `${title} — ${body}`.slice(0, 1024),
+      summary: `${title} — ${body} | Book: ${VISA_URL}`.slice(0, 1024),
       severity: "critical",
       source: "visa-slot-bot",
       component: "checkvisaslots",
