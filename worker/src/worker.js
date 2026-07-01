@@ -140,37 +140,50 @@ async function sendNtfyRepeated(c, title, body) {
   return anyOk;
 }
 
-// PagerDuty Events API v2: one "trigger" event -> PagerDuty handles the loud,
-// persistent, escalating alarm until you acknowledge. dedup_key collapses an
-// ongoing opening into a single incident (no spam).
-async function sendPagerDuty(c, title, body) {
-  const res = await fetch("https://events.pagerduty.com/v2/enqueue", {
+const PD_EVENTS_URL = "https://events.pagerduty.com/v2/enqueue";
+
+async function pdEvent(c, payload) {
+  return fetch(PD_EVENTS_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      routing_key: c.pdRoutingKey,
-      event_action: "trigger",
-      // Unique per alert so PagerDuty won't suppress later openings. The bot's
-      // own cooldown/change-detection already prevents spam.
-      dedup_key: `visa-slot-${Date.now()}`,
-      payload: {
-        summary: `${title} — ${body}`.slice(0, 1024),
-        severity: "critical",
-        source: "visa-slot-bot",
-        component: "checkvisaslots",
-      },
-      links: [{ href: VISA_URL, text: "Book on usvisascheduling" }],
-    }),
+    body: JSON.stringify({ routing_key: c.pdRoutingKey, ...payload }),
   });
+}
+
+// PagerDuty Events API v2: one "trigger" event -> PagerDuty handles the loud,
+// persistent, escalating alarm until you acknowledge.
+// We auto-resolve the previous alert first so an old open incident can't cause
+// PagerDuty to group/throttle the new one (keeps every real opening loud).
+async function sendPagerDuty(c, title, body, env) {
+  try {
+    const prev = env && (await env.STATE.get("pd_last"));
+    if (prev) await pdEvent(c, { event_action: "resolve", dedup_key: prev });
+  } catch (e) {
+    console.log("pd resolve-prev failed:", e.message);
+  }
+
+  const dedup = `visa-slot-${Date.now()}`;
+  const res = await pdEvent(c, {
+    event_action: "trigger",
+    dedup_key: dedup,
+    payload: {
+      summary: `${title} — ${body}`.slice(0, 1024),
+      severity: "critical",
+      source: "visa-slot-bot",
+      component: "checkvisaslots",
+    },
+    links: [{ href: VISA_URL, text: "Book on usvisascheduling" }],
+  });
+  if (res.ok && env) await env.STATE.put("pd_last", dedup);
   return res.ok;
 }
 
 // Dispatch to whichever provider(s) are configured.
-async function dispatch(c, title, body) {
+async function dispatch(c, title, body, env) {
   const p = c.notifyProvider;
   let ok = false;
   if (p === "ntfy" || p === "both") ok = (await sendNtfyRepeated(c, title, body)) || ok;
-  if (p === "pagerduty" || p === "both") ok = (await sendPagerDuty(c, title, body)) || ok;
+  if (p === "pagerduty" || p === "both") ok = (await sendPagerDuty(c, title, body, env)) || ok;
   return ok;
 }
 
@@ -209,7 +222,7 @@ async function run(env) {
   }
 
   const body = buildBody(notifiable.map((n) => n.a), appointmentType);
-  const sent = await dispatch(c, "US VISA SLOT AVAILABLE", body);
+  const sent = await dispatch(c, "US VISA SLOT AVAILABLE", body, env);
   if (sent) {
     for (const n of notifiable) state[n.a.location] = { sig: n.sig, ts: now };
     await env.STATE.put(STATE_KEY, JSON.stringify(state));
@@ -251,7 +264,7 @@ export default {
     }
     if (url.pathname === "/test") {
       const c = cfg(env);
-      const ok = await dispatch(c, "Visa Slot Bot test", "✅ Cloudflare Worker is live and can reach your phone.");
+      const ok = await dispatch(c, "Visa Slot Bot test", "✅ Cloudflare Worker is live and can reach your phone.", env);
       return Response.json({ ok });
     }
     return new Response("visa-slot-bot worker ok. Try /run or /test", { status: 200 });
