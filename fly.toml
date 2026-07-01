@@ -1,0 +1,17 @@
+# Fly.io config for an always-on background poller.
+# Deploy: fly launch --no-deploy  (then edit app name), fly deploy
+# Set secrets: fly secrets set CVS_API_KEY=... CALLMEBOT_PHONE=... CALLMEBOT_APIKEY=...
+app = "visa-slot-bot"
+primary_region = "sjc"
+
+[build]
+  dockerfile = "Dockerfile"
+
+# This is a worker (no inbound HTTP), so no [http_service] section.
+# One always-on machine, never auto-stopped.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+
+[processes]
+  app = "node src/index.js"

@@ -1,0 +1,34 @@
+# Free alternative to a long-running host: GitHub Actions on a schedule.
+# NOTE: GitHub's minimum cron granularity is 5 minutes (and runs can be delayed
+# under load), so this polls every ~5 min, not 2. For true 2-minute polling use
+# Fly.io / a VPS running `node src/index.js` instead.
+#
+# Setup: add repo secrets CVS_API_KEY, CALLMEBOT_PHONE, CALLMEBOT_APIKEY
+# (Settings -> Secrets and variables -> Actions).
+name: check-visa-slots
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: check-visa-slots
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: node src/index.js --once
+        env:
+          CVS_API_KEY: ${{ secrets.CVS_API_KEY }}
+          CALLMEBOT_PHONE: ${{ secrets.CALLMEBOT_PHONE }}
+          CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
+          # cooldown/state doesn't persist across CI runs, so lean on change
+          # detection only by keeping cooldown short here.
+          NOTIFY_COOLDOWN_MINUTES: "5"

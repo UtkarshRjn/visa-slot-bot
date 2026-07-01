@@ -1,0 +1,16 @@
+{
+  "name": "visa-slot-bot",
+  "version": "1.0.0",
+  "description": "Polls the CheckVisaSlots API and sends an urgent WhatsApp alert when a US visa slot opens up.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "check": "node src/index.js --once",
+    "validate": "node src/validate.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}

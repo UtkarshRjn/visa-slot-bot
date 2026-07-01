@@ -1,0 +1,29 @@
+name = "utkarsh-visa-slots"
+main = "src/worker.js"
+compatibility_date = "2024-11-01"
+
+# Cron-only worker — no public HTTP endpoint needed.
+workers_dev = false
+
+# Cron fires every minute (Cloudflare's minimum). Each run does multiple
+# passes spaced POLL_INTERVAL_SECONDS apart to approximate sub-minute polling.
+[triggers]
+crons = ["* * * * *"]
+
+# Non-secret config (CVS_API_KEY is set separately as a secret).
+[vars]
+EXT_VERSION = "4.7.3"
+# 30 => two passes per minute (at 0s and 30s). 60 => one pass per minute.
+POLL_INTERVAL_SECONDS = "30"
+NTFY_SERVER = "https://ntfy.sh"
+# NTFY_TOPIC is set as a Cloudflare secret (kept out of this public repo):
+#   npx wrangler secret put NTFY_TOPIC
+MAX_AGE_MINUTES = "20"
+NOTIFY_COOLDOWN_MINUTES = "15"
+LOCATIONS = ""
+
+# KV namespace for dedupe/cooldown state.
+# `id` is filled in after: npx wrangler kv namespace create STATE
+[[kv_namespaces]]
+binding = "STATE"
+id = "0a575877e4a1420eb6044178481b3080"
