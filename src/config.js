@@ -98,7 +98,7 @@ export const config = {
       : process.env.CALLMEBOT_APIKEY?.trim() || "",
 
   // Polling behaviour
-  pollIntervalSeconds: num("POLL_INTERVAL_SECONDS", 120),
+  pollIntervalSeconds: num("POLL_INTERVAL_SECONDS", 30),
   // Only treat a sighting as "available" if it was seen within this many minutes.
   maxAgeMinutes: num("MAX_AGE_MINUTES", 20),
   // Don't re-alert for the same location more often than this (unless it changes).

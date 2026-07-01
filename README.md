@@ -1,12 +1,16 @@
 # Visa Slot Bot 🛂📲
 
-A tiny, dependency-free Node service that **ports the "Check US Visa Slots" Chrome
-extension into a headless bot**. It polls the same CheckVisaSlots backend the
-extension uses, every ~2 minutes, and sends you an **urgent WhatsApp alert** the
-moment a US visa slot opens up at a location you care about.
+A tiny, dependency-free bot that **ports the "Check US Visa Slots" Chrome
+extension into a headless service**. It polls the same CheckVisaSlots backend the
+extension uses, roughly **every 30 seconds**, and sends you an **urgent mobile
+push** the moment a US visa slot opens up at a location you care about.
 
 No browser, no visa-portal login, no CAPTCHA — it reuses CheckVisaSlots'
 crowdsourced slot feed, so it's light enough to run free in the cloud.
+
+Two flavors, same logic:
+- **`worker/`** — a Cloudflare Worker (recommended, free, always-on, ~30s cron).
+- **`src/`** — a Node service you can run locally or on any VPS.
 
 ## How it works
 
@@ -19,79 +23,95 @@ makes the exact same call:
 | Validate key | `GET https://app.checkvisaslots.com/validate/v3` |
 | Auth | headers `x-api-key: <your access code>` + `extVersion: 4.7.3` |
 
+> Note: `slots/v3` sits behind a WAF that rejects non-browser User-Agents, so the
+> bot sends a normal Chrome UA.
+
 The response is `{ userDetails, slotDetails: [{ visa_location, slots, start_date, createdon }] }`.
 A location has openings when `slots > 0`; `createdon` says how fresh that
 sighting is. Detection rules match the extension:
 
 - **Dropbox** appointment type → all locations count.
 - **Consular/interview** → `VAC` (document-drop) locations are ignored.
-- Confidence by freshness: 🔥 ≤2 min · ⚠️ ≤5 min · ℹ️ older (within your window).
+- Confidence by freshness of the sighting: 🔥 ≤2 min · ⚠️ ≤5 min · ℹ️ older (within your window).
 
-On a fresh, relevant `slots > 0`, it WhatsApps you via [CallMeBot](https://www.callmebot.com/blog/free-api-whatsapp-messages/)
-and won't spam (per-location cooldown + change detection).
+On a fresh, relevant `slots > 0`, it pushes you an alert and won't spam
+(per-location cooldown + change detection).
 
-## Setup (5 minutes)
+## Notifications
 
-### 1. Get your CheckVisaSlots API key
+Two providers, pick with `NOTIFY_PROVIDER` = `ntfy` | `whatsapp` | `both`:
+
+- **ntfy (default, recommended)** — free, reliable push. Install the
+  [ntfy app](https://ntfy.sh/) on your phone and subscribe to a hard-to-guess
+  topic name. Alerts use `urgent` priority so they break through silent / Do Not
+  Disturb, and tapping one opens the visa scheduling site.
+- **WhatsApp via [CallMeBot](https://www.callmebot.com/blog/free-api-whatsapp-messages/)**
+  — free but flaky. One-time activation: from your phone, message
+  **+34 644 91 96 80** the text `I allow callmebot to send me messages`; it
+  replies with your `apikey`.
+
+## Get your CheckVisaSlots API key
+
 Open the **Check US Visa Slots** extension popup → copy the **Access Code**
-(API key) field. (It's the same key stored as `apiKey` by the extension.)
+(API key) field. (It's the same key the extension stores as `apiKey`.)
 
-### 2. Activate CallMeBot WhatsApp (one-time, free)
-From the phone you want alerts on:
-1. Add **+34 644 91 96 80** to your contacts.
-2. Send it this WhatsApp message: **`I allow callmebot to send me messages`**
-3. You'll get a reply with your personal **apikey**. (See
-   https://www.callmebot.com/blog/free-api-whatsapp-messages/)
+---
 
-### 3. Configure
+## Deploy: Cloudflare Workers (recommended — free, no credit card, ~30s)
+
+Everything lives in `worker/`. Cron fires every minute (Cloudflare's minimum);
+each run does two passes 30s apart, so effective polling is ~30s.
+
 ```bash
-cp .env.example .env
-# then edit .env and fill in:
-#   CVS_API_KEY, CALLMEBOT_PHONE (+countrycode), CALLMEBOT_APIKEY
+cd worker
+npx wrangler login                                  # one-time; opens browser
+# one-time per account: claim a workers.dev subdomain in the dashboard
+#   (Workers & Pages -> onboarding) if you haven't already
+
+npx wrangler kv namespace create STATE              # copy the id into wrangler.toml
+printf 'YOUR_CVS_KEY'   | npx wrangler secret put CVS_API_KEY
+printf 'your_ntfy_topic'| npx wrangler secret put NTFY_TOPIC
+npx wrangler deploy                                 # registers the 30s cron
+
+npx wrangler tail                                   # watch it run live
 ```
 
-### 4. Test it
+Config (poll interval, freshness, cooldown, location filter) lives in
+`worker/wrangler.toml` under `[vars]`. Secrets (`CVS_API_KEY`, `NTFY_TOPIC`) are
+set via `wrangler secret put` and kept out of the repo.
+
+---
+
+## Run locally / on a VPS (Node)
+
 ```bash
-npm run validate   # confirms your key + prints the current live slot feed
-npm run check      # runs ONE poll cycle (alerts if something's open)
+cp .env.example .env      # fill in CVS_API_KEY + your notifier settings
+npm run validate          # confirms your key + prints the current live slot feed
+npm run check             # runs ONE poll cycle (alerts if something's open)
+npm start                 # polls every ~30s, forever
 ```
 
-### 5. Run it
-```bash
-npm start          # polls every 2 minutes, forever
-```
-
-## Deploy to free cloud
-
-### Fly.io — recommended (true 2-min polling, always-on)
-```bash
-fly launch --no-deploy         # pick an app name; keep the Dockerfile
-fly secrets set \
-  CVS_API_KEY=xxxx \
-  CALLMEBOT_PHONE=+14085551234 \
-  CALLMEBOT_APIKEY=123456
-fly deploy
-fly logs                       # watch it run
-```
+Deploy the Node version anywhere as a **worker/background** process (not a web
+service). Note: **Fly.io and Railway now require a credit card** even on their
+free tiers — Cloudflare Workers above needs neither.
 
 ### GitHub Actions — zero-infra fallback (~5-min polling)
-Push this repo to GitHub, add repo secrets `CVS_API_KEY`, `CALLMEBOT_PHONE`,
-`CALLMEBOT_APIKEY` (Settings → Secrets → Actions). The workflow in
-`.github/workflows/check.yml` runs `--once` on a schedule. GitHub's minimum is
-5 minutes (and can lag), so use Fly/a VPS if you truly need 2.
-
-### Railway / Render / any VPS
-It's just `node src/index.js` — deploy as a **worker/background** process (not a
-web service) with the same env vars.
+Add repo secrets `CVS_API_KEY` + your notifier secrets (Settings → Secrets →
+Actions). The workflow in `.github/workflows/check.yml` runs `--once` on a
+schedule. GitHub's minimum is 5 minutes (and can lag), so use the Worker if you
+want ~30s.
 
 ## Configuration
 
 | Env var | Default | Meaning |
 |---|---|---|
 | `CVS_API_KEY` | — | **Required.** CheckVisaSlots access code. |
-| `CALLMEBOT_PHONE` | — | **Required.** Your number, e.g. `+14085551234`. |
-| `CALLMEBOT_APIKEY` | — | **Required.** From CallMeBot activation. |
-| `POLL_INTERVAL_SECONDS` | `120` | Poll frequency. |
+| `NOTIFY_PROVIDER` | `ntfy` | `ntfy` \| `whatsapp` \| `both`. |
+| `NTFY_TOPIC` | — | Required for ntfy. Your subscribed topic name. |
+| `NTFY_SERVER` | `https://ntfy.sh` | Override for a self-hosted ntfy. |
+| `CALLMEBOT_PHONE` | — | Required for whatsapp. e.g. `+14085551234`. |
+| `CALLMEBOT_APIKEY` | — | Required for whatsapp. From CallMeBot activation. |
+| `POLL_INTERVAL_SECONDS` | `30` | Poll frequency (Node loop; Worker passes/min). |
 | `MAX_AGE_MINUTES` | `20` | Ignore sightings older than this. |
 | `NOTIFY_COOLDOWN_MINUTES` | `15` | Min gap before re-alerting the same location. |
 | `LOCATIONS` | (all) | Filter, e.g. `NEW DELHI,CHENNAI`. |
@@ -100,9 +120,11 @@ web service) with the same env vars.
 ## Notes & caveats
 
 - **Crowdsourced data.** Slots come from other users' extensions, so there's a
-  lag. Freshest (🔥 ≤2 min) sightings are the ones worth rushing for; older ones
-  may already be gone. Tune `MAX_AGE_MINUTES` to taste.
+  lag — you're alerted when CheckVisaSlots learns of a slot. Freshest (🔥 ≤2 min)
+  sightings are the ones worth rushing for; older ones may already be gone. Tune
+  `MAX_AGE_MINUTES` to taste.
 - **Requires a valid CheckVisaSlots key.** Some data (e.g. `start_date`) is
   premium-only on their side; the bot works with whatever your key returns.
-- Be reasonable with polling (default 2 min is gentle). This is an unofficial
-  port for personal use; respect CheckVisaSlots' terms.
+- **Keep your ntfy topic private.** Anyone who knows it can push to your phone.
+- Be reasonable with polling. This is an unofficial port for personal use;
+  respect CheckVisaSlots' terms.
